@@ -116,21 +116,34 @@ class SpirvModuleInfo {
         this.spirvInfo = spirvInfo;
         this.entryPoints = [];
         this.names = {};
+        this.memberNames = {};
         this.decorations = {};
         this.types = {};
         this.variables = {};
+
+        // variable id-s for uniforms
+        this.uniformVariables = [];
     }
 
-    addEntryPoint(name, functionId, interfaceIds) {
+    addEntryPoint(name, functionId, interfaceIds, execModel) {
         this.entryPoints.push({
             name: name,
             functionId: functionId,
             interfaceIds: interfaceIds,
+            execModel: execModel,
         });
     }
 
     addName(name, targetId) {
         this.names[targetId] = name;
+    }
+
+    addMemberName(targetId, memberIdx, text) {
+        if (!(targetId in this.memberNames)) {
+            this.memberNames[targetId] = [];
+        }
+
+        this.memberNames[targetId][memberIdx] = text;
     }
 
     addDecoration(targetId, key, args) {
@@ -142,11 +155,11 @@ class SpirvModuleInfo {
     }
 
     addType(targetId, name, options) {
-        this.types[targetId] = { name: name, options: options || null };
+        this.types[targetId] = { id: targetId, name: name, options: options || null };
     }
 
     typeToString(typeId) {
-        const type = this.types[typeId];
+        const type = this.types[typeId] || typeId;
         if (!type) {
             return '<unknown type>';
         }
@@ -166,10 +179,20 @@ class SpirvModuleInfo {
                 const count = type.options.elementCount;
                 return `vec<${subType}, ${count}>`;
             }
+            case 'struct': {
+                const memberNames = this.memberNames[typeId];
+                const subTypeIds = type.options.subTypeIds;
+                const items = []
+                for (var idx = 0; idx < subTypeIds.length; idx++) {
+                    const typeStr = this.typeToString(subTypeIds[idx]);
+                    const varName = memberNames && memberNames[idx] ? " " + memberNames[idx] : "";
+                    items.push(typeStr + varName);
+                }
+                return '{ ' + items.join(',') + ' }';
+            }
             case 'int':
             case 'float': {
                 return type.name;
-                break;
             }
         }
 
@@ -179,23 +202,117 @@ class SpirvModuleInfo {
     typeBuildLayout(typeId) {
         const type = this.types[typeId];
         if (!type) {
-            return [];
+            return {};
         }
 
         //console.log("-->", JSON.stringify(type));
-        const result = [];
         switch (type.options.type) {
             case 'vector': {
-                const subType = this.typeBuildLayout(type.options.baseTypeId)[0];
+                const subType = this.typeBuildLayout(type.options.baseTypeId);
                 const info = {
-                    name: type.name,
+                    name: 'vector',
                     size: subType.size * type.options.elementCount,
                     baseSize: subType.size,
                     baseType: subType.name,
                     baseCount: type.options.elementCount,
+                    options: type.options,
                 };
-                result.push(info)
-                break;
+                return info;
+            }
+            case 'struct': {
+                const memberNames = this.memberNames[typeId];
+                const subTypeIds = type.options.subTypeIds;
+                const items = []
+
+                let totalSize = 0;
+                for (var idx = 0; idx < subTypeIds.length; idx++) {
+                    let subTypeInfo = this.typeBuildLayout(subTypeIds[idx]);
+                    subTypeInfo.memberName = memberNames && memberNames[idx] ? memberNames[idx] : "";
+                    subTypeInfo.options = this.types[subTypeIds[idx]].options;
+
+                    totalSize += subTypeInfo.size;
+                    items.push(subTypeInfo);
+                }
+                const info = {
+                    name: 'struct',
+                    size: totalSize,
+                    baseSize: totalSize,
+                    baseType: 'struct',
+                    baseCount: 1,
+                    children: items,
+                };
+                return info;
+            }
+            case 'image': {
+                // TODO: move to func
+                let info = {
+                    format: type.options.format,
+                    isArray: !!type.options.isArray,
+                    isMultisampled: !!type.options.isMultisampled,
+                };
+                switch (type.options.dimensionType) {
+                    case 0: { // 1D
+                        info.size = 1;
+                        info.baseSize = 1;
+                        info.baseType = 'image';
+                        info.baseCount = 1;
+                        info.suffix = '1D';
+                        break;
+                    }
+                    case 1: { // 2D
+                        info.size = 2;
+                        info.baseSize = 2;
+                        info.baseType = 'image';
+                        info.baseCount = 1;
+                        info.suffix = '2D';
+                        break;
+                    }
+                    case 3: { // 3D
+                        info.size = 3;
+                        info.baseSize = 3;
+                        info.baseType = 'image';
+                        info.baseCount = 1;
+                        info.suffix = '3D';
+                        break;
+                    }
+                    case 4: { // Cube
+                        info.size = 6;
+                        info.baseSize = 1;
+                        info.baseType = 'image';
+                        info.baseCount = 6;
+                        info.suffix = 'Cube';
+                        break;
+                    }
+                    case 6: { // SubpassData
+                        info.size = 1;
+                        info.baseSize = 1;
+                        info.baseType = 'subpassInput';
+                        info.baseCount = 1;
+                        info.suffix = 'Subpass';
+                        break;
+                    }
+                    default: {
+                        info.suffix = info.name = '<unknown img>'
+                        break;
+                    }
+                }
+                if (info.isArray) {
+                    info.suffix += 'Array';
+                }
+                info.name = 'image' + info.suffix;
+                return info;
+            }
+
+            case 'sampledimage': {
+                const subType = this.typeBuildLayout(type.options.baseTypeId);
+                const info = {
+                    name: 'sampler' + subType.suffix,
+                    size: subType.size,
+                    type: subType,
+                    baseType: type.options.type,
+                    baseCount: 1, // TODO (used for desc generation
+                };
+                return info;
             }
 
             default: {
@@ -206,16 +323,16 @@ class SpirvModuleInfo {
                     baseType: type.name,
                     baseCount: 1,
                 }
-                result.push(info);
-                break;
+                return info;
             }
         }
-        //console.log('||', JSON.stringify(result));
-        return result;
+
+        return {};
     }
 
     addVariable(targetId, targetTypeId, storageClass) {
         this.variables[targetId] = {
+            id: targetId,
             typeId: targetTypeId,
             storageClass: storageClass,
             // Constants from standard
@@ -223,6 +340,17 @@ class SpirvModuleInfo {
             isOutput: storageClass == 3,
             isFunctionLocal: storageClass == 7,
         };
+
+        switch (storageClass) {
+            case 0: {
+                this.uniformVariables.push(targetId);
+                break;
+            }
+            case 2: { // uniform
+                this.uniformVariables.push(targetId);
+                break;
+            }
+        }
     }
 
     variableToString(targetId) {
@@ -290,6 +418,16 @@ class SpirvModuleInfo {
         return -1;
     }
 
+    getExecutionModel(execId) {
+        // TODO: use it from spirv.json
+        switch (execId) {
+            case 0: return 'Vertex';
+            case 4: return 'Fragment';
+            case 6: return 'Kernel';
+        }
+        return '<unknown mode>'
+    }
+
     processEntryPoints() {
         let resultList = [];
         for (var idx = 0; idx < this.entryPoints.length; idx++) {
@@ -297,6 +435,7 @@ class SpirvModuleInfo {
             let result = {
                 name: entry.name,
                 functionId: entry.functionId,
+                execModel: this.getExecutionModel(entry.execModel),
                 inputs: [],
                 outputs: [],
             };
@@ -356,6 +495,7 @@ class SpirvModuleInfo {
     }
 
     processEntryLayouts() {
+        // TODO: do we even need this?
         const entries = this.processEntryPoints();
         const result = []
         for (var idx = 0; idx < entries.length; idx++) {
@@ -371,12 +511,95 @@ class SpirvModuleInfo {
 
                 inputLayout[iface.location] = {
                     location: iface.location,
-                    type: layout[0],
+                    type: layout,
+                    varName: iface.name,
                 }
             }
-            result.push(inputLayout);
+            result.push({
+                name: entry.name,
+                execModel: entry.execModel,
+                layout: inputLayout,
+            });
         }
         return result;
+    }
+
+    dumpEntryLayouts() {
+        const entryPoints = this.processEntryLayouts();
+        for (var idx = 0; idx < entryPoints.length; idx++) {
+            const entry = entryPoints[idx];
+
+            console.log(`EntryPoint: ${entry.name} [${entry.execModel}]`);
+            console.log(' Inputs:')
+            for (var ndx in entry.layout) {
+                const iface = entry.layout[ndx];
+                const typeStr = this.typeToString(iface.type);
+                console.log(`  location ${iface.location}: ${typeStr} ${iface.varName}`);
+            }
+        }
+    }
+
+    getDescritorDecorators(targetId) {
+        let descriptorInfo = {
+            set: -1,
+            binding: -1,
+        };
+
+        const decors = this.decorations[targetId];
+        for (var idx = 0; idx < decors.length; idx++) {
+            const decor = decors[idx];
+            const name = this.spirvInfo.decorationValueToName[decor.key];
+            switch (name) {
+                case 'DescriptorSet': descriptorInfo.set = decor.args[0]; break;
+                case 'Binding': descriptorInfo.binding = decor.args[0]; break;
+            }
+        }
+
+        return descriptorInfo;
+    }
+
+    processUniforms() {
+        const descriptors = [];
+        for (var idx = 0; idx < this.uniformVariables.length; idx++) {
+            const variable = this.variables[ this.uniformVariables[idx] ];
+            //const decors = this.decorations[ variable.id ];
+            const descriptorInfo = this.getDescritorDecorators(variable.id);
+
+            const layout = this.variableTypeInfo(variable.id);
+            //console.log(layout);
+            //console.log(this.typeToString(variable.typeId));
+
+            descriptors.push({
+                set: descriptorInfo.set,
+                binding: descriptorInfo.binding,
+
+                type: layout.name,
+                varName: this.names[variable.id],
+                layout: layout,
+                variableId: variable.id,
+            });
+        }
+
+        return descriptors;
+    }
+
+    dumpUniforms() {
+        console.log('Uniforms:');
+        const descriptors = this.processUniforms();
+        //console.log(descriptors[0]);
+        for (var idx = 0; idx < descriptors.length; idx++) {
+            const desc = descriptors[idx];
+            console.log(` (set: ${desc.set} binding: ${desc.binding}) ${desc.type} varName: ${desc.varName} (size: ${desc.layout.size})`);
+
+            if (desc.layout.children) {
+                console.log('{'.padStart(4));
+                desc.layout.children.forEach(type => {
+                    const typeStr = this.typeToString(type);
+                    console.log(' '.padStart(4 + 4), typeStr, type.memberName + ",");
+                });
+                console.log('}'.padStart(4));
+            }
+        }
     }
 };
 
@@ -402,7 +625,7 @@ function processSpirvContents(data, spirvInfo) {
                 const { text, nextIdx } = decodeString(insn.args, 2);
                 const interfaceValues = insn.args.slice(nextIdx);
                 console.log(`OpEntryPoint: ${execModel} %${resultFuncId} '${text}' interfaces: %[${interfaceValues}]`);
-                info.addEntryPoint(text, resultFuncId, interfaceValues);
+                info.addEntryPoint(text, resultFuncId, interfaceValues, execModel);
                 break;
             }
 
@@ -411,6 +634,15 @@ function processSpirvContents(data, spirvInfo) {
                 const { text, nextId } = decodeString(insn.args, 1);
                 console.log(`OpName: %${targetId} == '${text}'`);
                 info.addName(text, targetId);
+                break;
+            }
+
+            case 'OpMemberName': {
+                const targetId = insn.args[0];
+                const memberIdx = insn.args[1];
+                const { text, nextId } = decodeString(insn.args, 2);
+
+                info.addMemberName(targetId, memberIdx, text);
                 break;
             }
 
@@ -452,9 +684,42 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const baseTypeId = insn.args[1];
                 const elementCount = insn.args[2];
-                console.log(`%${targetId} = OpTypeVetor %${baseTypeId} ${elementCount}`);
+                console.log(`%${targetId} = OpTypeVector %${baseTypeId} ${elementCount}`);
 
                 info.addType(targetId, 'Vector', { type: 'vector', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
+                break;
+            }
+
+            case 'OpTypeImage': {
+                const targetId = insn.args[0];
+                const sampledTypeId = insn.args[1];
+                const dimensionType = insn.args[2];
+                const depth = insn.args[3];
+                const isArray = insn.args[4];
+                const isMultisampled = insn.args[5];
+                const isSampled = insn.args[6];
+                const format = insn.args[7];
+                console.log(`%${targetId} = OpTypeImage %${sampledTypeId} ${dimensionType} ${depth} ${isArray} ${isMultisampled} ${isSampled} ${format}`);
+
+                info.addType(targetId, 'Image', {
+                    type: 'image', size: -1, elementCount: 1, baseTypeId: sampledTypeId,
+                    //sampledTypeId: sampledTypeId,
+                    dimensionType: dimensionType,
+                    depth: depth,
+                    isArray: isArray,
+                    isMultisampled, isMultisampled,
+                    isSampled: isSampled,
+                    format: format,
+                });
+                break;
+            }
+
+            case 'OpTypeSampledImage': {
+                const targetId = insn.args[0];
+                const baseTypeId = insn.args[1];
+                console.log(`%${targetId} = OpTypeSampledImage %${baseTypeId}`);
+
+                info.addType(targetId, 'SampledImage', { type: 'sampledimage', size: -1, elementCount: 1, baseTypeId: baseTypeId });
                 break;
             }
 
@@ -465,6 +730,14 @@ function processSpirvContents(data, spirvInfo) {
                 console.log(`%${targetId} = OpTypePointer ${storageClass} %${targetTypeId}`);
 
                 info.addType(targetId, 'Pointer', { type: 'pointer', storageClass: storageClass, size: -1, elementCount: 1, baseTypeId: targetTypeId });
+                break;
+            }
+
+            case 'OpTypeStruct': {
+                const targetId = insn.args[0];
+                const subTypeIds = insn.args.slice(1);
+
+                info.addType(targetId, 'Struct', { type: 'struct', size: -1, elementCount: subTypeIds.length, subTypeIds: subTypeIds });
                 break;
             }
 
@@ -521,6 +794,9 @@ function parseLayoutConfig(args) {
             }
         }
     }
+    if (!layoutRequirements.buffers.length) {
+        return null;
+    }
 
     return layoutRequirements;
 }
@@ -568,7 +844,7 @@ function calculateOffsetString(currentDesc, previousDesc) {
     return `${previousDesc.offset} + (sizeof(${baseType}) * ${previousDesc.type.baseCount})`;
 }
 
-function buildLayoutConfig(reqs, layout) {
+function buildLayoutConfig(reqs, entry) {
     let bindingIdx = 0;
 
     const bindigDescriptors = [];
@@ -580,7 +856,7 @@ function buildLayoutConfig(reqs, layout) {
         let prevDesc = {};
 
         for (var ndx = 0; ndx < bufferCfg.length; ndx++) {
-            const targetLoc = layout[bufferCfg[ndx].location];
+            const targetLoc = entry.layout[bufferCfg[ndx].location];
             const attributeDescription = {
                 binding: bindingIdx,
                 location: targetLoc.location,
@@ -647,9 +923,211 @@ function writeVkPipelineVertexInputStateCreateInfo(config) {
     console.log("vertexInputInfo.pVertexAttributeDescriptions = &inputAttributes;");
 }
 
-console.log('---');
+function writeStructSets(structName, setMembers) {
+    for (var idx = 0; idx < setMembers.length; idx++) {
+        const entry = setMembers[idx];
+        console.log(`${structName}.${entry.member} = ${entry.value};`);
+    }
+}
+
+function writeDescriptors(descriptors) {
+    //console.log(descriptors)
+
+    // Descriptor Pool
+    // calculate descriptor pools:
+    const descTypeMapping = {
+        'struct': 'VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER',
+        'sampledimage': 'VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER',
+        'subpassInput': 'VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT',
+    };
+    const descTypeCount = {}
+    descriptors.forEach(desc => {
+        const type = descTypeMapping[desc.layout.baseType];
+        if (!(type in descTypeCount)) {
+            descTypeCount[type] = 0;
+        }
+        descTypeCount[type]++;
+    });
+
+    const poolSizeCount = Object.keys(descTypeCount).length;
+    console.log(`VkDescriptorPoolSize poolSizes[${poolSizeCount}] = { /* adapt based on max simultaneous use */`);
+    for (var type in descTypeCount) {
+        console.log('{'.padStart(4), type + ',', descTypeCount[type], '},');
+    }
+    console.log('};');
+    console.log('');
+
+    console.log('VkDescriptorPoolCreateInfo poolInfo{}');
+    const poolInfoSetMembers = [
+        { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO' },
+        { member: 'pNext', value: 'NULL' },
+        { member: 'flags', value: 0 },
+        { member: 'maxSets', value: 1 },
+        { member: 'poolSizeCount', value: poolSizeCount },
+        { member: 'pPoolSizes', value: 'poolSizes' },
+    ];
+    writeStructSets('poolInfo', poolInfoSetMembers);
+    console.log('');
+
+    console.log('vkDescriptorPool descriptorPool = VK_NULL_HANDLE;');
+    console.log('vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool);');
+    console.log('');
+
+    // Set Layout
+    // TODO: allow multiple descriptorsets
+
+    const bindingCount = descriptors.length;
+    console.log(`VkDescriptorSetLayoutBinding bindings[${bindingCount}] = {`);
+    const memberPad = ''.padStart(2 + 5);
+    for (var idx = 0; idx < descriptors.length; idx++) {
+        const desc = descriptors[idx];
+        const type = descTypeMapping[desc.layout.baseType];
+
+        const flags = [];
+        if (type != 'VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT') {
+            flags.push('VK_SHADER_STAGE_VERTEX_BIT');
+        }
+        flags.push('VK_SHADER_STAGE_FRAGMENT_BIT');
+
+        console.log('{'.padStart(5));
+        console.log(memberPad, `${desc.binding},`.padEnd(60), '// binding');
+        console.log(memberPad, `${type},`.padEnd(60), '// descriptorType');
+        console.log(memberPad, `${desc.layout.baseCount},`.padEnd(60), '// descriptorCount');
+        console.log(memberPad, (flags.join(' | ') + ',').padEnd(60),  '// stageFlags');
+        console.log(memberPad, 'NULL'.padEnd(60), '// pImmutableSamplers');
+        console.log('},'.padStart(6));
+    }
+    console.log('}');
+    console.log('');
+
+    console.log('VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};');
+    const layoutSetMembers = [
+        { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO' },
+        { member: 'pNext', value: 'NULL' },
+        { member: 'flags', value: 0 },
+        { member: 'bindingCount', value: bindingCount },
+        { member: 'pBindings',  value: 'bindingsLayout' },
+    ];
+    writeStructSets('descriptorSetLayoutInfo', layoutSetMembers);
+    console.log('');
+    console.log('VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;');
+    console.log('vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout)');
+    console.log('');
+
+
+    // Allocate descriptor set based on layout
+    console.log('VkDescriptorSetAllocateInfo descAllocInfo{};');
+    const descSetMembers = [
+        { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO' },
+        { member: 'pNext', value: 'NULL' },
+        { member: 'descriptorPool', value: 'descriptorPool' },
+        { member: 'descriptorSetCount', value: 1 },
+        { member: 'pSetLayouts', value: '&descriptorSetLayout' },
+    ];
+    writeStructSets('descAllocInfo', descSetMembers);
+    console.log('');
+    console.log('VkDescriptorSet descriptorSet = VK_NULL_HANDLE;');
+    console.log('vkAllocateDescriptorSets(device, &descAllocInfo, &descriptorSet)');
+    console.log('');
+
+    // Create vkUpdateDescriptorSets calls
+    const descPerType = {
+        buffers: [],
+        images: [],
+    };
+    const descWrites = [];
+    for (var idx = 0; idx < descriptors.length; idx++) {
+        const desc = descriptors[idx];
+        const writeInfo = {
+            dstSet: desc.set,
+            dstBinding: desc.binding,
+            dstArrayElement: 0, // TODO: support array elements
+            descriptorCount: 1, // TODO: support more than one
+            descriptorType: descTypeMapping[desc.layout.baseType],
+            pImageInfo: 'NULL',
+            pBufferInfo: 'NULL',
+            pTexelBufferView: 'NULL',
+        };
+
+        switch (desc.layout.baseType) { // TODO: make it more inclusivek
+            case 'struct': {
+                const bufferIdx = descPerType.buffers.length;
+
+                descPerType.buffers.push({
+                    buffer: `/* TODO: VkBuffer for binding ${desc.binding} */`,
+                    offset: 0,
+                    range: 'VK_WHOLE_SIZE',
+                });
+                writeInfo.pBufferInfo = `&bufferInfos[${bufferIdx}]`;
+                break;
+            }
+            case 'sampledimage': {
+                const imageIdx = descPerType.images.length;
+                descPerType.images.push({
+                    sampler: `/* TODO: VkSampler for image binding ${desc.binding} */`,
+                    imageView: `/* TODO: VkImageView for image binding ${desc.binding} */`,
+                    imageLayout: 'VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL',
+                });
+                writeInfo.pImageInfo = `&imageInfos[${imageIdx}]`;
+                break;
+            }
+            case 'subpassInput': {
+                const imageIdx = descPerType.images.length;
+                descPerType.images.push({
+                    sampler: 'VK_NULL_HANDLE',
+                    imageView: `/* TODO: VkImageView for subpass image binding ${desc.binding} */`,
+                    imageLayout: 'VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL',
+                });
+                writeInfo.pImageInfo = `&imageInfos[${imageIdx}]`;
+                break;
+            }
+        }
+
+        descWrites.push(writeInfo);
+    }
+
+    if (descPerType.buffers.length) {
+        console.log(`VkDescriptorBufferInfo bufferInfos[${descPerType.buffers.length}] = { /* TODO: check the argumnets */`);
+        for (var idx = 0; idx < descPerType.buffers.length; idx++) {
+            const entry = descPerType.buffers[idx];
+            console.log(''.padStart(4), `{ ${entry.buffer}, ${entry.offset}, ${entry.range} },`);
+        }
+        console.log('};');
+    }
+    if (descPerType.images.length) {
+        console.log(`VkDescriptorImageInfo imageInfos[${descPerType.images.length}] = { /* TODO: check the arguments */`);
+        for (var idx = 0; idx < descPerType.images.length; idx++) {
+            const entry = descPerType.images[idx];
+            console.log(''.padStart(4), `{ ${entry.sampler}, ${entry.imageView}, ${entry.imageLayout} },`);
+        }
+        console.log('};');
+    }
+
+    console.log('');
+    console.log(`VkWriteDescriptorSet descriptorWrite[${descWrites.length}] = {`);
+    for (var idx = 0; idx < descWrites.length; idx++) {
+        const write = descWrites[idx];
+
+        console.log(''.padStart(4), '{');
+        console.log(memberPad, 'VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,'.padEnd(60), '// sType');
+        console.log(memberPad, 'NULL,'.padEnd(60), '// pNext');
+        console.log(memberPad, 'descriptorSet, /* TODO: check this */'.padEnd(60), '// dstSet');
+        console.log(memberPad, `${write.dstBinding},`.padEnd(60), '// dstBinding');
+        console.log(memberPad, `${write.dstArrayElement},`.padEnd(60), '// dstArrayElement');
+        console.log(memberPad, `${write.descriptorCount},`.padEnd(60), '// descriptorCount');
+        console.log(memberPad, `${write.descriptorType},`.padEnd(60), '// descriptorType');
+        console.log(memberPad, `${write.pImageInfo},`.padEnd(60), '// pImageInfo');
+        console.log(memberPad, `${write.pBufferInfo},`.padEnd(60), '// pBufferInfo');
+        console.log(memberPad, `${write.pTexelBufferView},`.padEnd(60), '// pTexelBufferView');
+        console.log(''.padStart(4), '},');
+    }
+    console.log('};');
+    console.log('');
+    console.log(`vkUpdateDescriptorSets(device, ${descWrites.length}, descriptorWrite, 0, NULL);`)
+
+}
+
 const args = process.argv.slice(2);
-console.log(args);
 
 const spirvJson = loadJson("spirv.json");
 const spirvInfo = processSpirvJson(spirvJson);
@@ -669,20 +1147,55 @@ const header = parseHeader(data);
 
 const info = processSpirvContents(data, spirvInfo);
 
-//info.dumpEntryPoints()
+console.log('');
+info.dumpEntryPoints()
 
-console.log('Layouts:')
-const layouts = info.processEntryLayouts();
-console.log(layouts[0]);
+console.log('');
+info.dumpUniforms()
+
+console.log('');
+//console.log('Entrypoint Layouts:')
+//console.log(layouts);
+//info.dumpEntryLayouts()
 
 if (args.length > 1) {
-    console.log('Layout Req:')
 
-    const req = parseLayoutConfig(args);
-    console.log(req);
+    const uniformRequested = args.some((arg) => arg == 'descriptors');
+    const vertexRequested = args.some((arg) => arg.indexOf('input') != -1);
 
-    const cfg = buildLayoutConfig(req, layouts[0]);
+    if (vertexRequested) { // Do we have vertex input requests?
+        console.log('Layout Req:')
+        const req = parseLayoutConfig(args);
+        console.log(req);
 
-    console.log('\nResult:\n')
-    writeVkPipelineVertexInputStateCreateInfo(cfg);
+        const layouts = info.processEntryLayouts();
+        const cfg = buildLayoutConfig(req, layouts[0]);
+
+        console.log('\n//// Vertex Input:\n')
+        writeVkPipelineVertexInputStateCreateInfo(cfg);
+
+        console.log('\nvkCmdBindVertexBuffers:\n');
+        console.log(`VkBuffer vertexBuffers[${cfg.bindings.length}] = {`);
+        cfg.bindings.forEach((item) => {
+            console.log(`    /* TODO: VkBuffer for binding: ${item.binding} */,`);
+        });
+        console.log('};');
+        console.log(`VkDeviceSize vertexBufferOffsets[${cfg.bindings.length}] = {`);
+        cfg.bindings.forEach((item) => {
+            console.log('    0,');
+        });
+        console.log('};');
+        console.log(`vkCmdBindVertexBuffers(cmdBuffer, 0, ${cfg.bindings.length}, vertexBuffers, vertexBufferOffsets);`);
+        console.log('');
+        console.log('');
+    }
+
+    if (uniformRequested) {
+        console.log('\n//// Descriptor configuration\n');
+
+        const descriptors = info.processUniforms();
+        writeDescriptors(descriptors);
+        console.log('');
+        console.log('');
+    }
 }
