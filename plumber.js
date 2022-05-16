@@ -1158,75 +1158,82 @@ function writeDescriptors(descriptors) {
 
 }
 
-const args = process.argv.slice(2);
+function dumpVertex(args, info) {
+    console.log('Layout Req:')
+    const req = parseLayoutConfig(args);
+    console.log(req);
 
-const spirvJson = loadJson("spirv.json");
-const spirvInfo = processSpirvJson(spirvJson);
-//dumpSpirvHex(data);
+    const layouts = info.processEntryLayouts();
+    const cfg = buildLayoutConfig(req, layouts[0]);
 
-if (args.length < 1) {
-    console.log(`Usage: ${args[0]} <input.spv> [input=0,1,...] [input=2,3,...]`);
-    process.exit(-1);
+    console.log('\n//// Vertex Input:\n')
+    writeVkPipelineVertexInputStateCreateInfo(cfg);
+
+    console.log('\nvkCmdBindVertexBuffers:\n');
+    console.log(`VkBuffer vertexBuffers[${cfg.bindings.length}] = {`);
+    cfg.bindings.forEach((item) => {
+        console.log(`    /* TODO: VkBuffer for binding: ${item.binding} */,`);
+    });
+    console.log('};');
+    console.log(`VkDeviceSize vertexBufferOffsets[${cfg.bindings.length}] = {`);
+    cfg.bindings.forEach((item) => {
+        console.log('    0,');
+    });
+    console.log('};');
+    console.log(`vkCmdBindVertexBuffers(cmdBuffer, 0, ${cfg.bindings.length}, vertexBuffers, vertexBufferOffsets);`);
+    console.log('');
+    console.log('');
 }
-const targetSPV = args[0];
 
-const data = loadSpirvFile(targetSPV);
-const header = parseHeader(data);
 
-//dumpHeaderInfo(header);
-//console.log(data);
+if (typeof process !== "undefined") {
+    const args = process.argv.slice(2);
 
-const info = processSpirvContents(data, spirvInfo);
+    const spirvJson = loadJson("spirv.json");
+    const spirvInfo = processSpirvJson(spirvJson);
+    //dumpSpirvHex(data);
 
-console.log('');
-info.dumpEntryPoints()
-
-console.log('');
-info.dumpUniforms()
-
-console.log('');
-//console.log('Entrypoint Layouts:')
-//console.log(layouts);
-//info.dumpEntryLayouts()
-
-if (args.length > 1) {
-
-    const uniformRequested = args.some((arg) => arg == 'descriptors');
-    const vertexRequested = args.some((arg) => arg.indexOf('input') != -1);
-
-    if (vertexRequested) { // Do we have vertex input requests?
-        console.log('Layout Req:')
-        const req = parseLayoutConfig(args);
-        console.log(req);
-
-        const layouts = info.processEntryLayouts();
-        const cfg = buildLayoutConfig(req, layouts[0]);
-
-        console.log('\n//// Vertex Input:\n')
-        writeVkPipelineVertexInputStateCreateInfo(cfg);
-
-        console.log('\nvkCmdBindVertexBuffers:\n');
-        console.log(`VkBuffer vertexBuffers[${cfg.bindings.length}] = {`);
-        cfg.bindings.forEach((item) => {
-            console.log(`    /* TODO: VkBuffer for binding: ${item.binding} */,`);
-        });
-        console.log('};');
-        console.log(`VkDeviceSize vertexBufferOffsets[${cfg.bindings.length}] = {`);
-        cfg.bindings.forEach((item) => {
-            console.log('    0,');
-        });
-        console.log('};');
-        console.log(`vkCmdBindVertexBuffers(cmdBuffer, 0, ${cfg.bindings.length}, vertexBuffers, vertexBufferOffsets);`);
-        console.log('');
-        console.log('');
+    if (args.length < 1) {
+        console.log(`Usage: ${args[0]} <input.spv> [input=0,1,...] [input=2,3,...]`);
+        process.exit(-1);
     }
+    const targetSPV = args[0];
 
-    if (uniformRequested) {
-        console.log('\n//// Descriptor configuration\n');
+    const data = loadSpirvFile(targetSPV);
+    const header = parseHeader(data);
 
-        const descriptors = info.processUniforms();
-        writeDescriptors(descriptors);
-        console.log('');
-        console.log('');
+    //dumpHeaderInfo(header);
+    //console.log(data);
+
+    const info = processSpirvContents(data, spirvInfo);
+
+    console.log('');
+    info.dumpEntryPoints()
+
+    console.log('');
+    info.dumpUniforms()
+
+    console.log('');
+    //console.log('Entrypoint Layouts:')
+    //console.log(layouts);
+    //info.dumpEntryLayouts()
+
+    if (args.length > 1) {
+
+        const uniformRequested = args.some((arg) => arg == 'descriptors');
+        const vertexRequested = args.some((arg) => arg.indexOf('input') != -1);
+
+        if (vertexRequested) { // Do we have vertex input requests?
+            dumpVertex(args, info);
+        }
+
+        if (uniformRequested) {
+            console.log('\n//// Descriptor configuration\n');
+
+            const descriptors = info.processUniforms();
+            writeDescriptors(descriptors);
+            console.log('');
+            console.log('');
+        }
     }
 }
