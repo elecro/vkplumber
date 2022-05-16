@@ -179,6 +179,11 @@ class SpirvModuleInfo {
                 const count = type.options.elementCount;
                 return `vec<${subType}, ${count}>`;
             }
+            case 'matrix': {
+                const subType = this.typeToString(type.options.baseTypeId);
+                const count = type.options.elementCount;
+                return `mat<${subType}, ${count}>`;
+            }
             case 'struct': {
                 const memberNames = this.memberNames[typeId];
                 const subTypeIds = type.options.subTypeIds;
@@ -216,6 +221,17 @@ class SpirvModuleInfo {
                     baseType: subType.name,
                     baseCount: type.options.elementCount,
                     options: type.options,
+                };
+                return info;
+            }
+            case 'matrix': {
+                const subType = this.typeBuildLayout(type.options.baseTypeId);
+                const info = {
+                    name: 'matrix',
+                    size: subType.size * type.options.elementCount,
+                    baseSize: subType.size,
+                    baseType: 'vector',
+                    baseCount: type.options.elementCount,
                 };
                 return info;
             }
@@ -687,6 +703,16 @@ function processSpirvContents(data, spirvInfo) {
                 console.log(`%${targetId} = OpTypeVector %${baseTypeId} ${elementCount}`);
 
                 info.addType(targetId, 'Vector', { type: 'vector', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
+                break;
+            }
+
+            case 'OpTypeMatrix': {
+                const targetId = insn.args[0];
+                const baseTypeId = insn.args[1];
+                const elementCount = insn.args[2]; // column count
+                console.log(`%${targetId} = OpTypeMatrix %${baseTypeId} ${elementCount}`);
+
+                info.addType(targetId, 'Matrix', { type: 'matrix', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
                 break;
             }
 
