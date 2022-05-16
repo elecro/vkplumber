@@ -8,8 +8,13 @@ function loadJson(filename) {
 
 function reverseDict(dict) {
     const entrySet = Object.entries(dict);
-    const reversed = entrySet.map(([k, v]) => [v, k]);
-    return Object.fromEntries(reversed);
+
+    const result = [];
+    for(var idx = 0; idx < entrySet.length; idx++) {
+        result[entrySet[idx][1]] = entrySet[idx][0];
+    }
+
+    return result;
 }
 
 function processSpirvJson(data) {
