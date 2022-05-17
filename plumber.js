@@ -184,6 +184,11 @@ class SpirvModuleInfo {
                 const count = type.options.elementCount;
                 return `vec<${subType}, ${count}>`;
             }
+            case 'array': {
+                const subType = this.typeToString(type.options.baseTypeId);
+                const count = type.options.elementCount;
+                return `${subType}[${count}]`;
+            }
             case 'matrix': {
                 const subType = this.typeToString(type.options.baseTypeId);
                 const count = type.options.elementCount;
@@ -228,6 +233,17 @@ class SpirvModuleInfo {
                     options: type.options,
                 };
                 return info;
+            }
+            case 'array': {
+                const subType = this.typeBuildLayout(type.options.baseTypeId);
+                const info = {
+                    name: 'array',
+                    size: subType.size * type.options.elementCount,
+                    baseSize: subType.size,
+                    baseType: subType.name,
+                    baseCount: type.options.elementCount,
+                    options: type.options,
+                };
             }
             case 'matrix': {
                 const subType = this.typeBuildLayout(type.options.baseTypeId);
@@ -600,6 +616,7 @@ class SpirvModuleInfo {
                 variableId: variable.id,
             });
         }
+        descriptors.sort((left, right) => left.set - right.set || left.binding - right.binding);
 
         return descriptors;
     }
@@ -708,6 +725,16 @@ function processSpirvContents(data, spirvInfo) {
                 console.log(`%${targetId} = OpTypeVector %${baseTypeId} ${elementCount}`);
 
                 info.addType(targetId, 'Vector', { type: 'vector', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
+                break;
+            }
+
+            case 'OpTypeArray': {
+                const targetId = insn.args[0];
+                const baseTypeId = insn.args[1];
+                const length = insn.args[2];
+                console.log(`%${targetId} = OpTypeArray %${baseTypeId} ${length}`);
+
+                info.addType(targetId, 'Array', { type: 'array', size: -1, elementCount: length, baseTypeId: baseTypeId });
                 break;
             }
 
