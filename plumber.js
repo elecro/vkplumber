@@ -62,9 +62,9 @@ function hexString(value) {
     return '0x' + value.toString(16).padStart(8, '0') ;
 }
 
-function dumpHeaderInfo(header) {
-    console.log("Magic Number : " + hexString(header.magicnumber));
-    console.log("Version : " + hexString(header.version));
+function dumpHeaderInfo(header, logCallback) {
+    logCallback("Magic Number : " + hexString(header.magicnumber));
+    logCallback("Version : " + hexString(header.version));
 }
 
 class Spirv {
@@ -942,55 +942,62 @@ function buildLayoutConfig(reqs, entry) {
 
 function writeVkPipelineVertexInputStateCreateInfo(config) {
     // VkVertexInputBindingDescription:
+    let resultString = [];
     const padding = 60;
 
     const bindingCount = config.bindings.length;
-    console.log(`VkVertexInputBindingDescription inputBindings[${bindingCount}] = {`);
+    resultString.push(`VkVertexInputBindingDescription inputBindings[${bindingCount}] = {`);
     for (var idx = 0; idx < bindingCount; idx++) {
         const binding = config.bindings[idx];
-        console.log('   {');
-        console.log(`       ${binding.binding},`.padEnd(padding), "// binding");
-        console.log(`       ${binding.stride},`.padEnd(padding), "// stride");
-        console.log(`       ${binding.inputRate},`.padEnd(padding), "// inputRate");
-        console.log('   },');
+        resultString.push('   {');
+        resultString.push(`       ${binding.binding},`.padEnd(padding) + "// binding");
+        resultString.push(`       ${binding.stride},`.padEnd(padding) + "// stride");
+        resultString.push(`       ${binding.inputRate},`.padEnd(padding) + "// inputRate");
+        resultString.push('   },');
     }
-    console.log('};');
-    console.log('');
+    resultString.push('};');
+    resultString.push('');
 
     //VkVertexInputAttributeDescription
     const attrCount = config.attributes.length;
-    console.log(`VkVertexInputAttributeDescription inputAttributes[${attrCount}] = {`);
+    resultString.push(`VkVertexInputAttributeDescription inputAttributes[${attrCount}] = {`);
     for (var idx = 0; idx < attrCount; idx++) {
         const attr = config.attributes[idx];
-        console.log('   {');
-        console.log(`       ${attr.location},`.padEnd(padding), "// location");
-        console.log(`       ${attr.binding},`.padEnd(padding), "// binding");
-        console.log(`       ${attr.format},`.padEnd(padding), "// format");
-        console.log(`       ${attr.offset},`.padEnd(padding), "// offset");
-        console.log('   },');
+        resultString.push('   {');
+        resultString.push(`       ${attr.location},`.padEnd(padding) + "// location");
+        resultString.push(`       ${attr.binding},`.padEnd(padding) + "// binding");
+        resultString.push(`       ${attr.format},`.padEnd(padding) + "// format");
+        resultString.push(`       ${attr.offset},`.padEnd(padding) + "// offset");
+        resultString.push('   },');
     }
-    console.log('}');
-    console.log('');
+    resultString.push('}');
+    resultString.push('');
 
-    console.log("VkPipelineVertexInputStateCreateInfo vertexInputInfo{};");
-    console.log("vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO");
-    console.log("vertexInputInfo.pNext = NULL;");
-    console.log("vertexInputInfo.flags = 0;");
-    console.log(`vertexInputInfo.vertexBindingDescriptionCount = ${bindingCount};`);
-    console.log("vertexInputInfo.pVertexBindingDescriptions = &inputBindings;")
-    console.log(`vertexInputInfo.vertexAttributeDescriptionCount = ${attrCount};`);
-    console.log("vertexInputInfo.pVertexAttributeDescriptions = &inputAttributes;");
+    resultString.push("VkPipelineVertexInputStateCreateInfo vertexInputInfo{};");
+    resultString.push("vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO");
+    resultString.push("vertexInputInfo.pNext = NULL;");
+    resultString.push("vertexInputInfo.flags = 0;");
+    resultString.push(`vertexInputInfo.vertexBindingDescriptionCount = ${bindingCount};`);
+    resultString.push("vertexInputInfo.pVertexBindingDescriptions = &inputBindings;")
+    resultString.push(`vertexInputInfo.vertexAttributeDescriptionCount = ${attrCount};`);
+    resultString.push("vertexInputInfo.pVertexAttributeDescriptions = &inputAttributes;");
+
+    return resultString.join("\n");
 }
 
 function writeStructSets(structName, setMembers) {
+    let resultString = [];
     for (var idx = 0; idx < setMembers.length; idx++) {
         const entry = setMembers[idx];
-        console.log(`${structName}.${entry.member} = ${entry.value};`);
+        resultString.push(`${structName}.${entry.member} = ${entry.value};`);
     }
+
+    return resultString.join("\n");
 }
 
 function writeDescriptors(descriptors) {
     //console.log(descriptors)
+    let resultString = [];
 
     // Descriptor Pool
     // calculate descriptor pools:
@@ -1009,14 +1016,14 @@ function writeDescriptors(descriptors) {
     });
 
     const poolSizeCount = Object.keys(descTypeCount).length;
-    console.log(`VkDescriptorPoolSize poolSizes[${poolSizeCount}] = { /* adapt based on max simultaneous use */`);
+    resultString.push(`VkDescriptorPoolSize poolSizes[${poolSizeCount}] = { /* adapt based on max simultaneous use */`);
     for (var type in descTypeCount) {
-        console.log('{'.padStart(4), type + ',', descTypeCount[type], '},');
+        resultString.push('{'.padStart(4) + ` ${type}, ${descTypeCount[type]}` + ' },');
     }
-    console.log('};');
-    console.log('');
+    resultString.push('};');
+    resultString.push('');
 
-    console.log('VkDescriptorPoolCreateInfo poolInfo{}');
+    resultString.push('VkDescriptorPoolCreateInfo poolInfo{}');
     const poolInfoSetMembers = [
         { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO' },
         { member: 'pNext', value: 'NULL' },
@@ -1025,18 +1032,18 @@ function writeDescriptors(descriptors) {
         { member: 'poolSizeCount', value: poolSizeCount },
         { member: 'pPoolSizes', value: 'poolSizes' },
     ];
-    writeStructSets('poolInfo', poolInfoSetMembers);
-    console.log('');
+    resultString.push(writeStructSets('poolInfo', poolInfoSetMembers));
+    resultString.push('');
 
-    console.log('vkDescriptorPool descriptorPool = VK_NULL_HANDLE;');
-    console.log('vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool);');
-    console.log('');
+    resultString.push('vkDescriptorPool descriptorPool = VK_NULL_HANDLE;');
+    resultString.push('vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool);');
+    resultString.push('');
 
     // Set Layout
     // TODO: allow multiple descriptorsets
 
     const bindingCount = descriptors.length;
-    console.log(`VkDescriptorSetLayoutBinding bindings[${bindingCount}] = {`);
+    resultString.push(`VkDescriptorSetLayoutBinding bindings[${bindingCount}] = {`);
     const memberPad = ''.padStart(2 + 5);
     for (var idx = 0; idx < descriptors.length; idx++) {
         const desc = descriptors[idx];
@@ -1048,18 +1055,18 @@ function writeDescriptors(descriptors) {
         }
         flags.push('VK_SHADER_STAGE_FRAGMENT_BIT');
 
-        console.log('{'.padStart(5));
-        console.log(memberPad, `${desc.binding},`.padEnd(60), '// binding');
-        console.log(memberPad, `${type},`.padEnd(60), '// descriptorType');
-        console.log(memberPad, `${desc.layout.baseCount},`.padEnd(60), '// descriptorCount');
-        console.log(memberPad, (flags.join(' | ') + ',').padEnd(60),  '// stageFlags');
-        console.log(memberPad, 'NULL'.padEnd(60), '// pImmutableSamplers');
-        console.log('},'.padStart(6));
+        resultString.push('{'.padStart(5));
+        resultString.push(`${memberPad} ${desc.binding},`.padEnd(60) + '// binding');
+        resultString.push(`${memberPad} ${type},`.padEnd(60) + '// descriptorType');
+        resultString.push(`${memberPad} ${desc.layout.baseCount},`.padEnd(60) + '// descriptorCount');
+        resultString.push(`${memberPad} ` + (flags.join(' | ') + ',').padEnd(60) +  '// stageFlags');
+        resultString.push(memberPad + ' NULL'.padEnd(60) + '// pImmutableSamplers');
+        resultString.push('},'.padStart(6));
     }
-    console.log('}');
-    console.log('');
+    resultString.push('}');
+    resultString.push('');
 
-    console.log('VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};');
+    resultString.push('VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};');
     const layoutSetMembers = [
         { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO' },
         { member: 'pNext', value: 'NULL' },
@@ -1067,15 +1074,15 @@ function writeDescriptors(descriptors) {
         { member: 'bindingCount', value: bindingCount },
         { member: 'pBindings',  value: 'bindingsLayout' },
     ];
-    writeStructSets('descriptorSetLayoutInfo', layoutSetMembers);
-    console.log('');
-    console.log('VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;');
-    console.log('vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout)');
-    console.log('');
+    resultString.push(writeStructSets('descriptorSetLayoutInfo', layoutSetMembers));
+    resultString.push('');
+    resultString.push('VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;');
+    resultString.push('vkCreateDescriptorSetLayout(device, &descriptorSetLayoutInfo, NULL, &descriptorSetLayout)');
+    resultString.push('');
 
 
     // Allocate descriptor set based on layout
-    console.log('VkDescriptorSetAllocateInfo descAllocInfo{};');
+    resultString.push('VkDescriptorSetAllocateInfo descAllocInfo{};');
     const descSetMembers = [
         { member: 'sType', value: 'VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO' },
         { member: 'pNext', value: 'NULL' },
@@ -1083,11 +1090,11 @@ function writeDescriptors(descriptors) {
         { member: 'descriptorSetCount', value: 1 },
         { member: 'pSetLayouts', value: '&descriptorSetLayout' },
     ];
-    writeStructSets('descAllocInfo', descSetMembers);
-    console.log('');
-    console.log('VkDescriptorSet descriptorSet = VK_NULL_HANDLE;');
-    console.log('vkAllocateDescriptorSets(device, &descAllocInfo, &descriptorSet)');
-    console.log('');
+    resultString.push(writeStructSets('descAllocInfo', descSetMembers));
+    resultString.push('');
+    resultString.push('VkDescriptorSet descriptorSet = VK_NULL_HANDLE;');
+    resultString.push('vkAllocateDescriptorSets(device, &descAllocInfo, &descriptorSet)');
+    resultString.push('');
 
     // Create vkUpdateDescriptorSets calls
     const descPerType = {
@@ -1146,71 +1153,74 @@ function writeDescriptors(descriptors) {
     }
 
     if (descPerType.buffers.length) {
-        console.log(`VkDescriptorBufferInfo bufferInfos[${descPerType.buffers.length}] = { /* TODO: check the argumnets */`);
+        resultString.push(`VkDescriptorBufferInfo bufferInfos[${descPerType.buffers.length}] = { /* TODO: check the argumnets */`);
         for (var idx = 0; idx < descPerType.buffers.length; idx++) {
             const entry = descPerType.buffers[idx];
-            console.log(''.padStart(4), `{ ${entry.buffer}, ${entry.offset}, ${entry.range} },`);
+            resultString.push(''.padStart(4) + `{ ${entry.buffer}, ${entry.offset}, ${entry.range} },`);
         }
-        console.log('};');
+        resultString.push('};');
     }
     if (descPerType.images.length) {
-        console.log(`VkDescriptorImageInfo imageInfos[${descPerType.images.length}] = { /* TODO: check the arguments */`);
+        resultString.push(`VkDescriptorImageInfo imageInfos[${descPerType.images.length}] = { /* TODO: check the arguments */`);
         for (var idx = 0; idx < descPerType.images.length; idx++) {
             const entry = descPerType.images[idx];
-            console.log(''.padStart(4), `{ ${entry.sampler}, ${entry.imageView}, ${entry.imageLayout} },`);
+            resultString.push(''.padStart(4) + `{ ${entry.sampler}, ${entry.imageView}, ${entry.imageLayout} },`);
         }
-        console.log('};');
+        resultString.push('};');
     }
 
-    console.log('');
-    console.log(`VkWriteDescriptorSet descriptorWrite[${descWrites.length}] = {`);
+    resultString.push('');
+    resultString.push(`VkWriteDescriptorSet descriptorWrite[${descWrites.length}] = {`);
     for (var idx = 0; idx < descWrites.length; idx++) {
         const write = descWrites[idx];
 
-        console.log(''.padStart(4), '{');
-        console.log(memberPad, 'VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,'.padEnd(60), '// sType');
-        console.log(memberPad, 'NULL,'.padEnd(60), '// pNext');
-        console.log(memberPad, 'descriptorSet, /* TODO: check this */'.padEnd(60), '// dstSet');
-        console.log(memberPad, `${write.dstBinding},`.padEnd(60), '// dstBinding');
-        console.log(memberPad, `${write.dstArrayElement},`.padEnd(60), '// dstArrayElement');
-        console.log(memberPad, `${write.descriptorCount},`.padEnd(60), '// descriptorCount');
-        console.log(memberPad, `${write.descriptorType},`.padEnd(60), '// descriptorType');
-        console.log(memberPad, `${write.pImageInfo},`.padEnd(60), '// pImageInfo');
-        console.log(memberPad, `${write.pBufferInfo},`.padEnd(60), '// pBufferInfo');
-        console.log(memberPad, `${write.pTexelBufferView},`.padEnd(60), '// pTexelBufferView');
-        console.log(''.padStart(4), '},');
+        resultString.push(''.padStart(4) + '{');
+        resultString.push(memberPad + ' VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,'.padEnd(60) + '// sType');
+        resultString.push(memberPad + ' NULL,'.padEnd(60) + '// pNext');
+        resultString.push(memberPad + ' descriptorSet, /* TODO: check this */'.padEnd(60) + '// dstSet');
+        resultString.push(memberPad + ` ${write.dstBinding},`.padEnd(60) + '// dstBinding');
+        resultString.push(memberPad + ` ${write.dstArrayElement},`.padEnd(60) + '// dstArrayElement');
+        resultString.push(memberPad + ` ${write.descriptorCount},`.padEnd(60) + '// descriptorCount');
+        resultString.push(memberPad + ` ${write.descriptorType},`.padEnd(60) + '// descriptorType');
+        resultString.push(memberPad + ` ${write.pImageInfo},`.padEnd(60) + '// pImageInfo');
+        resultString.push(memberPad + ` ${write.pBufferInfo},`.padEnd(60) + '// pBufferInfo');
+        resultString.push(memberPad + ` ${write.pTexelBufferView},`.padEnd(60) + '// pTexelBufferView');
+        resultString.push(''.padStart(4) + '},');
     }
-    console.log('};');
-    console.log('');
-    console.log(`vkUpdateDescriptorSets(device, ${descWrites.length}, descriptorWrite, 0, NULL);`)
+    resultString.push('};');
+    resultString.push('');
+    resultString.push(`vkUpdateDescriptorSets(device, ${descWrites.length}, descriptorWrite, 0, NULL);`)
 
+    return resultString.join('\n');
 }
 
-function dumpVertex(args, info) {
-    console.log('Layout Req:')
+function dumpVertex(args, info, logCallback) {
+    logCallback('Layout Req:')
     const req = parseLayoutConfig(args);
-    console.log(req);
+    logCallback(JSON.stringify(req));
 
     const layouts = info.processEntryLayouts();
     const cfg = buildLayoutConfig(req, layouts[0]);
 
-    console.log('\n//// Vertex Input:\n')
-    writeVkPipelineVertexInputStateCreateInfo(cfg);
+    let resultString = [];
 
-    console.log('\nvkCmdBindVertexBuffers:\n');
-    console.log(`VkBuffer vertexBuffers[${cfg.bindings.length}] = {`);
+    resultString.push('\n//// Vertex Input:\n')
+    resultString.push(writeVkPipelineVertexInputStateCreateInfo(cfg));
+
+    resultString.push('\nvkCmdBindVertexBuffers:\n');
+    resultString.push(`VkBuffer vertexBuffers[${cfg.bindings.length}] = {`);
     cfg.bindings.forEach((item) => {
-        console.log(`    /* TODO: VkBuffer for binding: ${item.binding} */,`);
+        resultString.push(`    /* TODO: VkBuffer for binding: ${item.binding} */,`);
     });
-    console.log('};');
-    console.log(`VkDeviceSize vertexBufferOffsets[${cfg.bindings.length}] = {`);
+    resultString.push('};');
+    resultString.push(`VkDeviceSize vertexBufferOffsets[${cfg.bindings.length}] = {`);
     cfg.bindings.forEach((item) => {
-        console.log('    0,');
+        resultString.push('    0,');
     });
-    console.log('};');
-    console.log(`vkCmdBindVertexBuffers(cmdBuffer, 0, ${cfg.bindings.length}, vertexBuffers, vertexBufferOffsets);`);
-    console.log('');
-    console.log('');
+    resultString.push('};');
+    resultString.push(`vkCmdBindVertexBuffers(cmdBuffer, 0, ${cfg.bindings.length}, vertexBuffers, vertexBufferOffsets);`);
+
+    return resultString.join("\n");
 }
 
 
@@ -1253,16 +1263,16 @@ if (typeof process !== "undefined") {
         const vertexRequested = args.some((arg) => arg.indexOf('input') != -1);
 
         if (vertexRequested) { // Do we have vertex input requests?
-            dumpVertex(args, info);
+            let vertexCallsString = dumpVertex(args, info, console.log);
+            console.log(vertexCallsString);
         }
 
         if (uniformRequested) {
             console.log('\n//// Descriptor configuration\n');
 
             const descriptors = info.processUniforms();
-            writeDescriptors(descriptors);
-            console.log('');
-            console.log('');
+            const descriptorCallsString = writeDescriptors(descriptors);
+            console.log(descriptorCallsString);
         }
     }
 }
