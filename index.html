@@ -75,12 +75,12 @@ function require(module) {
         const header = parseHeader(data);
         dumpHeaderInfo(header);
 
-        const info = processSpirvContents(data, spirvInfo);
+        const info = processSpirvContents(data, spirvInfo, customLog);
         console.log('');
-        info.dumpEntryPoints()
+        info.dumpEntryPoints(customLog)
 
         console.log('');
-        info.dumpUniforms()
+        info.dumpUniforms(customLog)
 
         console.log('');
 

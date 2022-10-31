@@ -508,25 +508,25 @@ class SpirvModuleInfo {
         return resultList;
     }
 
-    dumpEntryPoints() {
+    dumpEntryPoints(logCallback) {
         const entries = this.processEntryPoints();
         for (var idx = 0; idx < entries.length; idx++) {
             const entry = entries[idx];
-            console.log(`Entry: '${entry.name}'`);
-            console.log(` Function: %${entry.functionId}`);
-            console.log(' Interface:');
-            console.log('  Input:');
+            logCallback(`Entry: '${entry.name}'`);
+            logCallback(` Function: %${entry.functionId}`);
+            logCallback(' Interface:');
+            logCallback('  Input:');
             for (var ndx = 0; ndx < entry.inputs.length; ndx++) {
                 const iface = entry.inputs[ndx];
-                console.log(`   ${iface.decorations}: ${iface.type} ${iface.name}`);
+                logCallback(`   ${iface.decorations}: ${iface.type} ${iface.name}`);
 
                 //console.log(this.variableTypeInfo(iface.id));
             }
-            console.log('  Output:');
+            logCallback('  Output:');
             for (var ndx = 0; ndx < entry.outputs.length; ndx++) {
                 const iface = entry.outputs[ndx];
                 if (!iface.isBuiltin)
-                    console.log(`   ${iface.decorations}: ${iface.type} ${iface.name}`);
+                    logCallback(`   ${iface.decorations}: ${iface.type} ${iface.name}`);
             }
         }
     }
@@ -561,17 +561,17 @@ class SpirvModuleInfo {
         return result;
     }
 
-    dumpEntryLayouts() {
+    dumpEntryLayouts(logCallback) {
         const entryPoints = this.processEntryLayouts();
         for (var idx = 0; idx < entryPoints.length; idx++) {
             const entry = entryPoints[idx];
 
-            console.log(`EntryPoint: ${entry.name} [${entry.execModel}]`);
-            console.log(' Inputs:')
+            logCallback(`EntryPoint: ${entry.name} [${entry.execModel}]`);
+            logCallback(' Inputs:')
             for (var ndx in entry.layout) {
                 const iface = entry.layout[ndx];
                 const typeStr = this.typeToString(iface.type);
-                console.log(`  location ${iface.location}: ${typeStr} ${iface.varName}`);
+                logCallback(`  location ${iface.location}: ${typeStr} ${iface.varName}`);
             }
         }
     }
@@ -621,27 +621,27 @@ class SpirvModuleInfo {
         return descriptors;
     }
 
-    dumpUniforms() {
-        console.log('Uniforms:');
+    dumpUniforms(logCallback) {
+        logCallback('Uniforms:');
         const descriptors = this.processUniforms();
         //console.log(descriptors[0]);
         for (var idx = 0; idx < descriptors.length; idx++) {
             const desc = descriptors[idx];
-            console.log(` (set: ${desc.set} binding: ${desc.binding}) ${desc.type} varName: ${desc.varName} (size: ${desc.layout.size})`);
+            logCallback(` (set: ${desc.set} binding: ${desc.binding}) ${desc.type} varName: ${desc.varName} (size: ${desc.layout.size})`);
 
             if (desc.layout.children) {
-                console.log('{'.padStart(4));
+                logCallback('{'.padStart(4));
                 desc.layout.children.forEach(type => {
                     const typeStr = this.typeToString(type);
-                    console.log(' '.padStart(4 + 4), typeStr, type.memberName + ",");
+                    logCallback(' '.padStart(4 + 4), typeStr, type.memberName + ",");
                 });
-                console.log('}'.padStart(4));
+                logCallback('}'.padStart(4));
             }
         }
     }
 };
 
-function processSpirvContents(data, spirvInfo) {
+function processSpirvContents(data, spirvInfo, logCallback) {
     const info = new SpirvModuleInfo(spirvInfo);
     const mod = new Spirv(data, spirvInfo);
 
@@ -653,7 +653,7 @@ function processSpirvContents(data, spirvInfo) {
             case 'OpExtInstImport': {
                 const resultId = insn.args[0];
                 const { text, nextIdx } = decodeString(insn.args, 1);
-                console.log(`%${resultId} = OpExtInstImport: '${text}'`);
+                logCallback(`%${resultId} = OpExtInstImport: '${text}'`);
                 break;
             }
 
@@ -662,7 +662,7 @@ function processSpirvContents(data, spirvInfo) {
                 const execModel = insn.args[0];
                 const { text, nextIdx } = decodeString(insn.args, 2);
                 const interfaceValues = insn.args.slice(nextIdx);
-                console.log(`OpEntryPoint: ${execModel} %${resultFuncId} '${text}' interfaces: %[${interfaceValues}]`);
+                logCallback(`OpEntryPoint: ${execModel} %${resultFuncId} '${text}' interfaces: %[${interfaceValues}]`);
                 info.addEntryPoint(text, resultFuncId, interfaceValues, execModel);
                 break;
             }
@@ -670,7 +670,7 @@ function processSpirvContents(data, spirvInfo) {
             case 'OpName': {
                 const targetId = insn.args[0];
                 const { text, nextId } = decodeString(insn.args, 1);
-                console.log(`OpName: %${targetId} == '${text}'`);
+                logCallback(`OpName: %${targetId} == '${text}'`);
                 info.addName(text, targetId);
                 break;
             }
@@ -688,14 +688,14 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const decorationKey = insn.args[1];
                 const args = insn.args.slice(2);
-                console.log(`OpDecorate: %${targetId} ${decorationKey} ${args}`);
+                logCallback(`OpDecorate: %${targetId} ${decorationKey} ${args}`);
                 info.addDecoration(targetId, decorationKey, args);
                 break;
             }
 
             case 'OpTypeVoid': {
                 const targetId = insn.args[0];
-                console.log(`%${targetId} = OpTypeVoid`);
+                logCallback(`%${targetId} = OpTypeVoid`);
                 info.addType(targetId, 'Void', { type: 'void', size: 0, elementCount: 1 });
                 break;
             }
@@ -704,7 +704,8 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const width = insn.args[1];
                 const signed = insn.args[2];
-                console.log(`%${targetId} = OpTypeInt ${width} ${signed}`);
+                logCallback(`%${targetId} = OpTypeInt ${width} ${signed}`);
+
                 const typeName = signed ? 'Int' : 'UInt';
                 info.addType(targetId, typeName + width, { type: 'int', size: 4, elementCount: 1});
                 break;
@@ -713,7 +714,7 @@ function processSpirvContents(data, spirvInfo) {
             case 'OpTypeFloat': {
                 const targetId = insn.args[0];
                 const width = insn.args[1];
-                console.log(`%${targetId} = OpTypeFloat ${width}`);
+                logCallback(`%${targetId} = OpTypeFloat ${width}`);
                 info.addType(targetId, 'Float' + width, { type: 'float', size: 4, elementCount: 1 });
                 break;
             }
@@ -722,7 +723,7 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const baseTypeId = insn.args[1];
                 const elementCount = insn.args[2];
-                console.log(`%${targetId} = OpTypeVector %${baseTypeId} ${elementCount}`);
+                logCallback(`%${targetId} = OpTypeVector %${baseTypeId} ${elementCount}`);
 
                 info.addType(targetId, 'Vector', { type: 'vector', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
                 break;
@@ -732,7 +733,7 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const baseTypeId = insn.args[1];
                 const length = insn.args[2];
-                console.log(`%${targetId} = OpTypeArray %${baseTypeId} ${length}`);
+                logCallback(`%${targetId} = OpTypeArray %${baseTypeId} ${length}`);
 
                 info.addType(targetId, 'Array', { type: 'array', size: -1, elementCount: length, baseTypeId: baseTypeId });
                 break;
@@ -742,7 +743,7 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const baseTypeId = insn.args[1];
                 const elementCount = insn.args[2]; // column count
-                console.log(`%${targetId} = OpTypeMatrix %${baseTypeId} ${elementCount}`);
+                logCallback(`%${targetId} = OpTypeMatrix %${baseTypeId} ${elementCount}`);
 
                 info.addType(targetId, 'Matrix', { type: 'matrix', size: -1, elementCount: elementCount, baseTypeId: baseTypeId });
                 break;
@@ -757,7 +758,7 @@ function processSpirvContents(data, spirvInfo) {
                 const isMultisampled = insn.args[5];
                 const isSampled = insn.args[6];
                 const format = insn.args[7];
-                console.log(`%${targetId} = OpTypeImage %${sampledTypeId} ${dimensionType} ${depth} ${isArray} ${isMultisampled} ${isSampled} ${format}`);
+                logCallback(`%${targetId} = OpTypeImage %${sampledTypeId} ${dimensionType} ${depth} ${isArray} ${isMultisampled} ${isSampled} ${format}`);
 
                 info.addType(targetId, 'Image', {
                     type: 'image', size: -1, elementCount: 1, baseTypeId: sampledTypeId,
@@ -775,7 +776,7 @@ function processSpirvContents(data, spirvInfo) {
             case 'OpTypeSampledImage': {
                 const targetId = insn.args[0];
                 const baseTypeId = insn.args[1];
-                console.log(`%${targetId} = OpTypeSampledImage %${baseTypeId}`);
+                logCallback(`%${targetId} = OpTypeSampledImage %${baseTypeId}`);
 
                 info.addType(targetId, 'SampledImage', { type: 'sampledimage', size: -1, elementCount: 1, baseTypeId: baseTypeId });
                 break;
@@ -785,7 +786,7 @@ function processSpirvContents(data, spirvInfo) {
                 const targetId = insn.args[0];
                 const storageClass = insn.args[1];
                 const targetTypeId = insn.args[2];
-                console.log(`%${targetId} = OpTypePointer ${storageClass} %${targetTypeId}`);
+                logCallback(`%${targetId} = OpTypePointer ${storageClass} %${targetTypeId}`);
 
                 info.addType(targetId, 'Pointer', { type: 'pointer', storageClass: storageClass, size: -1, elementCount: 1, baseTypeId: targetTypeId });
                 break;
@@ -803,7 +804,7 @@ function processSpirvContents(data, spirvInfo) {
                 const targetTypeId = insn.args[0];
                 const targetId = insn.args[1];
                 const storageClass = insn.args[2];
-                console.log(`%${targetId} = OpVariable %${targetTypeId} ${storageClass}`);
+                logCallback(`%${targetId} = OpVariable %${targetTypeId} ${storageClass}`);
 
                 //info.addType(targetId, 'Pointer', { type: 'pointer', storageClass: storageClass, targetTypeId: targetTypeId });
                 info.addVariable(targetId, targetTypeId, storageClass);
@@ -1232,13 +1233,14 @@ if (typeof process !== "undefined") {
     //dumpHeaderInfo(header);
     //console.log(data);
 
-    const info = processSpirvContents(data, spirvInfo);
+    console.log('Processed debug messages:');
+    const info = processSpirvContents(data, spirvInfo, console.log);
 
-    console.log('');
-    info.dumpEntryPoints()
+    console.log('Processed entry points dump:');
+    info.dumpEntryPoints(console.log)
 
-    console.log('');
-    info.dumpUniforms()
+    console.log('Processed uniforms dump:');
+    info.dumpUniforms(console.log)
 
     console.log('');
     //console.log('Entrypoint Layouts:')
