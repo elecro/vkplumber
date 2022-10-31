@@ -23,8 +23,10 @@
       <button type="button" class="btn btn-primary" onclick="runProcess();">Process</button>
     </div>
     <div class="container">
+        <details> <summary>Debug Log info</summary> <code> <pre id="debugLogOutput"></pre> </code> </details>
         <code>
         <pre id="outputLog"></pre>
+
         </code>
     </div>
 
@@ -38,6 +40,12 @@ const outputLogElement = document.getElementById("outputLog");
 function customLog() {
     const text = [...arguments].join(" ") + "\n";
     outputLogElement.textContent += text;
+}
+
+const debugLogElement = document.getElementById("debugLogOutput");
+function debugLog() {
+    const text = [...arguments].join(" ") + "\n";
+    debugLogElement.textContent += text;
 }
 
 function require(module) {
@@ -73,14 +81,14 @@ function require(module) {
 
     function processSPVFile(data) {
         const header = parseHeader(data);
-        dumpHeaderInfo(header);
+        dumpHeaderInfo(header, debugLog);
 
-        const info = processSpirvContents(data, spirvInfo, customLog);
-        console.log('');
-        info.dumpEntryPoints(customLog)
+        const info = processSpirvContents(data, spirvInfo, debugLog);
+        debugLog('');
+        info.dumpEntryPoints(debugLog)
 
-        console.log('');
-        info.dumpUniforms(customLog)
+        debugLog('');
+        info.dumpUniforms(debugLog)
 
         console.log('');
 
@@ -91,7 +99,8 @@ function require(module) {
 
         if (vertexRequested) { // Do we have vertex input requests?
             try {
-                dumpVertex(args, info);
+                let vertexCallsString = dumpVertex(args, info, debugLog);
+                customLog(vertexCallsString);
             } catch (ex) {
                 console.log(ex);
                 console.log(ex.stack);
@@ -99,11 +108,12 @@ function require(module) {
         }
 
         if (uniformRequested) {
-            console.log('\n//// Descriptor configuration\n');
+            customLog('\n//// Descriptor configuration\n');
 
             try {
                 const descriptors = info.processUniforms();
-                writeDescriptors(descriptors);
+                const descriptorsCallString = writeDescriptors(descriptors);
+                customLog(descriptorsCallString);
             } catch (ex) {
                 console.log(ex);
                 console.log(ex.stack);
